@@ -26,6 +26,7 @@ import com.griefprevention.protection.InteractionProtectionHandler;
 import com.griefprevention.protection.ProtectionHelper;
 import me.ryanhamshire.GriefPrevention.DataStore.NoTransferException;
 import me.ryanhamshire.GriefPrevention.events.SaveTrappedPlayerEvent;
+import me.ryanhamshire.GriefPrevention.storage.CompactFlatFileDataStore;
 import me.ryanhamshire.GriefPrevention.events.TrustChangedEvent;
 import org.bukkit.BanList;
 import org.bukkit.BanList.Type;
@@ -242,6 +243,10 @@ public class GriefPrevention extends JavaPlugin
     private String databaseUserName;
     private String databasePassword;
 
+    // Compact storage options
+    public boolean config_storage_useCompactFormat = true;  // Use consolidated files instead of per-claim/per-player files
+    public boolean config_storage_useCompression = false;   // Use GZIP compression for compact storage files
+
 
     //how far away to search from a tree trunk for its branch blocks
     public static final int TREE_RADIUS = 5;
@@ -326,7 +331,22 @@ public class GriefPrevention extends JavaPlugin
             }
             try
             {
-                this.dataStore = new FlatFileDataStore();
+                // Use compact storage format if enabled (default: true for better performance)
+                if (this.config_storage_useCompactFormat)
+                {
+                    AddLogEntry("Initializing compact storage format...");
+                    this.dataStore = new CompactFlatFileDataStore(this.config_storage_useCompression);
+
+                    // Log storage statistics
+                    CompactFlatFileDataStore.StorageStats stats = ((CompactFlatFileDataStore) this.dataStore).getStats();
+                    AddLogEntry("Storage stats: " + stats.toString());
+                }
+                else
+                {
+                    // Fall back to legacy per-file storage
+                    AddLogEntry("Using legacy per-file storage format.");
+                    this.dataStore = new FlatFileDataStore();
+                }
             }
             catch (Exception e)
             {
@@ -336,7 +356,19 @@ public class GriefPrevention extends JavaPlugin
             }
         }
 
-        String dataMode = (this.dataStore instanceof FlatFileDataStore) ? "(File Mode)" : "(Database Mode)";
+        String dataMode;
+        if (this.dataStore instanceof CompactFlatFileDataStore)
+        {
+            dataMode = "(Compact File Mode)";
+        }
+        else if (this.dataStore instanceof FlatFileDataStore)
+        {
+            dataMode = "(Legacy File Mode)";
+        }
+        else
+        {
+            dataMode = "(Database Mode)";
+        }
         AddLogEntry("Finished loading data " + dataMode + ".");
 
         //unless claim block accrual is disabled, start the recurring per 10 minute event to give claim blocks to online players
@@ -671,6 +703,10 @@ public class GriefPrevention extends JavaPlugin
         this.config_ban_useCommand = config.getBoolean("GriefPrevention.UseBanCommand", false);
         this.config_ban_commandFormat = config.getString("GriefPrevention.BanCommandPattern", "ban %name% %reason%");
 
+        // Storage format options - compact format consolidates files for better performance on large servers
+        this.config_storage_useCompactFormat = config.getBoolean("GriefPrevention.Storage.UseCompactFormat", true);
+        this.config_storage_useCompression = config.getBoolean("GriefPrevention.Storage.UseCompression", false);
+
         //default for claim investigation tool
         String investigationToolMaterialName = Material.STICK.name();
 
@@ -836,6 +872,10 @@ public class GriefPrevention extends JavaPlugin
 
         outConfig.set("GriefPrevention.UseBanCommand", this.config_ban_useCommand);
         outConfig.set("GriefPrevention.BanCommandPattern", this.config_ban_commandFormat);
+
+        // Storage format options
+        outConfig.set("GriefPrevention.Storage.UseCompactFormat", this.config_storage_useCompactFormat);
+        outConfig.set("GriefPrevention.Storage.UseCompression", this.config_storage_useCompression);
 
         outConfig.set("GriefPrevention.Advanced.fixNegativeClaimblockAmounts", this.config_advanced_fixNegativeClaimblockAmounts);
         outConfig.set("GriefPrevention.Advanced.ClaimExpirationCheckRate", this.config_advanced_claim_expiration_check_rate);
